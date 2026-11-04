@@ -1,3 +1,4 @@
+import numpy as np
 import pytest
 
 from conftest import make_cfg, tiny_cnn
@@ -332,3 +333,47 @@ def test_group_disjoint_results_not_inflated_vs_in_distribution(ws):
         "train_acc" in jobs[0]["history"]["epochs"][0]
     )  # training accuracy exists only as a diagnostic in history
     assert all("train" not in r for r in rows)
+
+
+def test_consented_real_dataset_runs_end_to_end_and_is_labelled_real(ws, small_ds, tmp_path):
+    """Ingest WAVs through the consent manifest, then run a full experiment on the stored (non-synthetic) dataset."""
+    import json
+
+    import soundfile as sf
+
+    from openkeystroke.data import ingest_consented_recordings
+
+    lab = tmp_path / "lab"
+    lab.mkdir()
+    recs = []
+    for i, r in enumerate(small_ds.records):
+        sf.write(lab / f"r{i}.wav", np.asarray(small_ds.waveforms[i]), 16000)
+        recs.append(
+            {
+                "file": f"r{i}.wav",
+                "label": r.label,
+                "session_id": r.session_id,
+                "device_id": r.device_id,
+                "environment": r.environment,
+            }
+        )
+    man = {
+        "dataset_id": "lab-e2e",
+        "classes": small_ds.class_names,
+        "recordings": recs,
+        "consent": {
+            "obtained": True,
+            "protocol_id": "LAB-2026-07",
+            "purpose": "authorized acoustic research",
+            "participants_informed": True,
+        },
+    }
+    (lab / "manifest.json").write_text(json.dumps(man))
+    ingest_consented_recordings(lab / "manifest.json", ws.datasets_dir / "lab-e2e")
+    cfg = make_cfg("single").model_copy(update={"dataset": DatasetRef(path="lab-e2e")})
+    eid, st = run(ws, cfg)
+    r = ws.store.get(eid)
+    assert st == "COMPLETED" and r["dataset_is_synthetic"] == 0
+    s = ws.store.get_json(eid, "summary.json")
+    assert not any("SYNTHETIC" in c for c in s["caveats"]) and s["dataset"]["is_synthetic"] is False
+    assert ws.store.get_json(eid, "dataset.json")["manifest"]["consent"]["protocol_id"] == "LAB-2026-07"

@@ -7,7 +7,7 @@
 [![CI](https://github.com/AhmedJaffar/Acoustic-Keystroke-Recognition/actions/workflows/ci.yml/badge.svg)](https://github.com/AhmedJaffar/Acoustic-Keystroke-Recognition/actions/workflows/ci.yml)
 ![Python](https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12%20%7C%203.13-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
-![Tests](https://img.shields.io/badge/tests-125%20passing-brightgreen)
+![Tests](https://img.shields.io/badge/tests-126%20passing-brightgreen)
 
 </div>
 
