@@ -12,7 +12,11 @@ from ..config import SplitConfig
 from ..errors import DatasetError, LeakageError
 from .dataset import Dataset
 
-GROUP_FOR_PROTOCOL = {"session_disjoint": "session", "device_disjoint": "device", "environment_disjoint": "environment"}
+GROUP_FOR_PROTOCOL = {
+    "session_disjoint": "session",
+    "device_disjoint": "device",
+    "environment_disjoint": "environment",
+}
 
 
 @dataclass
@@ -36,7 +40,9 @@ def make_split(ds: Dataset, protocol: str, cfg: SplitConfig, seed: int) -> Split
         idx = np.arange(n)
         try:
             tv, te = train_test_split(idx, test_size=cfg.test_fraction, stratify=y, random_state=seed)
-            tr, va = train_test_split(tv, test_size=cfg.val_fraction / (1 - cfg.test_fraction), stratify=y[tv], random_state=seed)
+            tr, va = train_test_split(
+                tv, test_size=cfg.val_fraction / (1 - cfg.test_fraction), stratify=y[tv], random_state=seed
+            )
         except ValueError as exc:
             raise DatasetError(f"cannot create stratified split: {exc}") from exc
         return Split(np.sort(tr), np.sort(va), np.sort(te), protocol, seed)
@@ -46,7 +52,9 @@ def make_split(ds: Dataset, protocol: str, cfg: SplitConfig, seed: int) -> Split
     g = ds.group_array(kind)
     uniq = np.array(sorted(set(g.tolist())))
     if len(uniq) < 3:
-        raise DatasetError(f"{protocol} needs >= 3 distinct {kind} groups (train/val/test); dataset has {len(uniq)}")
+        raise DatasetError(
+            f"{protocol} needs >= 3 distinct {kind} groups (train/val/test); dataset has {len(uniq)}"
+        )
     rng = np.random.default_rng([seed, 17])
     perm = uniq[rng.permutation(len(uniq))]
     n_test = max(1, round(cfg.test_fraction * len(uniq)))
@@ -58,7 +66,15 @@ def make_split(ds: Dataset, protocol: str, cfg: SplitConfig, seed: int) -> Split
     train_classes = set(y[tr].tolist())
     if train_classes != set(range(len(ds.class_names))):
         raise DatasetError(f"{protocol}: some classes are missing from the training groups")
-    return Split(tr, va, te, protocol, seed, kind, {"train": sorted(train_g.tolist()), "val": sorted(val_g.tolist()), "test": sorted(test_g.tolist())})
+    return Split(
+        tr,
+        va,
+        te,
+        protocol,
+        seed,
+        kind,
+        {"train": sorted(train_g.tolist()), "val": sorted(val_g.tolist()), "test": sorted(test_g.tolist())},
+    )
 
 
 @dataclass
@@ -95,9 +111,13 @@ def detect_leakage(ds: Dataset, split: Split) -> LeakageReport:
             for b in names[i + 1 :]:
                 shared = sets[a] & sets[b]
                 if shared:
-                    rep.errors.append(f"{split.group_kind} groups shared between {a} and {b}: {sorted(shared)[:5]}")
+                    rep.errors.append(
+                        f"{split.group_kind} groups shared between {a} and {b}: {sorted(shared)[:5]}"
+                    )
     else:
-        rep.warnings.append("in-distribution split: sessions/devices overlap across partitions; do not read this as cross-domain generalisation")
+        rep.warnings.append(
+            "in-distribution split: sessions/devices overlap across partitions; do not read this as cross-domain generalisation"
+        )
     th, eh = _hashes(ds, split.train), _hashes(ds, split.test)
     vh = _hashes(ds, split.val)
     if th & eh or th & vh or vh & eh:

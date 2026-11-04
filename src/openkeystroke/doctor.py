@@ -17,7 +17,20 @@ def run_doctor(ws: Workspace, self_test: bool = False) -> list[dict[str, Any]]:
         out.append({"name": name, "ok": bool(ok), "detail": detail})
 
     add("python", sys.version_info >= (3, 10), sys.version.split()[0])
-    for mod in ("numpy", "scipy", "sklearn", "torch", "pydantic", "soundfile", "pandas", "plotly", "matplotlib", "streamlit", "click", "yaml"):
+    for mod in (
+        "numpy",
+        "scipy",
+        "sklearn",
+        "torch",
+        "pydantic",
+        "soundfile",
+        "pandas",
+        "plotly",
+        "matplotlib",
+        "streamlit",
+        "click",
+        "yaml",
+    ):
         try:
             m = importlib.import_module(mod)
             add(f"import {mod}", True, getattr(m, "__version__", "?"))
@@ -46,10 +59,19 @@ def run_doctor(ws: Workspace, self_test: bool = False) -> list[dict[str, Any]]:
             from .presets import preset_config
 
             tmp = Workspace(tempfile.mkdtemp(prefix="oks-doctor-"))
-            cfg = preset_config("single", synthetic=SyntheticConfig(n_classes=3, n_devices=3, sessions_per_device=1, samples_per_class_per_session=6))
+            cfg = preset_config(
+                "single",
+                synthetic=SyntheticConfig(
+                    n_classes=3, n_devices=3, sessions_per_device=1, samples_per_class_per_session=6
+                ),
+            )
             eid = create_experiment(tmp, cfg)
             st = run_experiment(tmp, eid)
-            acc = tmp.store.get_json(eid, "summary.json")["table"][0]["accuracy"]["mean"] if st == "COMPLETED" else None
+            acc = (
+                tmp.store.get_json(eid, "summary.json")["table"][0]["accuracy"]["mean"]
+                if st == "COMPLETED"
+                else None
+            )
             add("end-to-end self-test", st == "COMPLETED", f"{st}; held-out accuracy={acc}")
             del TrainConfig
         except Exception as exc:  # noqa: BLE001

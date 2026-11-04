@@ -21,7 +21,9 @@ class Defense:
     def __init__(self, **params: float) -> None:
         self.params = params
 
-    def apply(self, x: np.ndarray, sr: int, rng: np.random.Generator) -> np.ndarray:  # pragma: no cover - abstract
+    def apply(
+        self, x: np.ndarray, sr: int, rng: np.random.Generator
+    ) -> np.ndarray:  # pragma: no cover - abstract
         raise NotImplementedError
 
 
@@ -44,7 +46,13 @@ class BandPass(Defense):
     type = "bandpass"
 
     def apply(self, x, sr, rng):
-        return ops.bandpass(x, sr, _req(self.params, "low_hz"), _req(self.params, "high_hz"), int(_req(self.params, "order", 4)))
+        return ops.bandpass(
+            x,
+            sr,
+            _req(self.params, "low_hz"),
+            _req(self.params, "high_hz"),
+            int(_req(self.params, "order", 4)),
+        )
 
 
 class NoiseInjection(Defense):
@@ -96,7 +104,9 @@ class SpectralSmoothing(Defense):
         n_fft, hop = int(_req(self.params, "n_fft", 256)), int(_req(self.params, "hop", 64))
         width = max(int(_req(self.params, "width_bins")), 1)
         s = ops.stft(x, n_fft, hop)
-        mag = ndimage.uniform_filter1d(np.abs(s), size=width, axis=1, mode="nearest")  # smooth magnitude along frequency
+        mag = ndimage.uniform_filter1d(
+            np.abs(s), size=width, axis=1, mode="nearest"
+        )  # smooth magnitude along frequency
         phase = np.exp(1j * np.angle(s))
         return ops.istft(mag * phase, n_fft, hop, length=x.shape[1]).astype(np.float32)
 
@@ -122,7 +132,9 @@ class TFMask(Defense):
         return ops.istft(s * mask, n_fft, hop, length=x.shape[1]).astype(np.float32)
 
 
-DEFENSES: dict[str, type[Defense]] = {c.type: c for c in (LowPass, BandPass, NoiseInjection, TransientAttenuation, SpectralSmoothing, TFMask)}
+DEFENSES: dict[str, type[Defense]] = {
+    c.type: c for c in (LowPass, BandPass, NoiseInjection, TransientAttenuation, SpectralSmoothing, TFMask)
+}
 
 
 class DefenseChain:

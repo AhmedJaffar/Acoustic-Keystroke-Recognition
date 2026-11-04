@@ -20,7 +20,13 @@ SPLIT_NAMES = ("train", "val", "test")
 
 
 class Dataset:
-    def __init__(self, manifest: DatasetManifest, records: list[SampleRecord], waveforms: np.ndarray, root: Path | None = None) -> None:
+    def __init__(
+        self,
+        manifest: DatasetManifest,
+        records: list[SampleRecord],
+        waveforms: np.ndarray,
+        root: Path | None = None,
+    ) -> None:
         if waveforms.ndim != 2 or waveforms.shape[0] != len(records):
             raise DatasetError(f"waveforms shape {waveforms.shape} does not match {len(records)} records")
         self.manifest = manifest
@@ -68,7 +74,17 @@ class Dataset:
     def compute_fingerprint(self) -> str:
         h = hashlib.sha256()
         m = self.manifest
-        h.update(canonical_json({"id": m.dataset_id, "version": m.version, "sr": m.sample_rate, "classes": m.class_names, "synthetic": m.is_synthetic}).encode())
+        h.update(
+            canonical_json(
+                {
+                    "id": m.dataset_id,
+                    "version": m.version,
+                    "sr": m.sample_rate,
+                    "classes": m.class_names,
+                    "synthetic": m.is_synthetic,
+                }
+            ).encode()
+        )
         for r in self.records:
             d = r.model_dump(mode="json", exclude={"partition"})
             h.update(canonical_json(d).encode())
@@ -98,7 +114,7 @@ class Dataset:
         recs = self.records
         wf = np.asarray(self.waveforms)
         rms = np.sqrt((wf.astype(np.float64) ** 2).mean(axis=1))
-        snr = [r.noise.get("snr_db") for r in recs if r.noise.get("snr_db") is not None]
+        snr = [float(r.noise["snr_db"]) for r in recs if r.noise.get("snr_db") is not None]
         return {
             "dataset_id": self.manifest.dataset_id,
             "version": self.manifest.version,
@@ -113,21 +129,40 @@ class Dataset:
             "environments": dict(Counter(r.environment_name for r in recs)),
             "source_categories": dict(Counter(r.source_category for r in recs)),
             "mic_categories": dict(Counter(r.mic_category for r in recs)),
-            "rms": {"mean": float(rms.mean()), "std": float(rms.std()), "min": float(rms.min()), "max": float(rms.max())},
-            "snr_db": {"mean": float(np.mean(snr)), "std": float(np.std(snr)), "min": float(np.min(snr)), "max": float(np.max(snr))} if snr else None,
+            "rms": {
+                "mean": float(rms.mean()),
+                "std": float(rms.std()),
+                "min": float(rms.min()),
+                "max": float(rms.max()),
+            },
+            "snr_db": {
+                "mean": float(np.mean(snr)),
+                "std": float(np.std(snr)),
+                "min": float(np.min(snr)),
+                "max": float(np.max(snr)),
+            }
+            if snr
+            else None,
         }
 
     # ---- persistence
     def save(self, directory: str | Path, *, overwrite: bool = False) -> Path:
         out = Path(directory)
-        if out.exists() and any(out.iterdir()):
-            if not overwrite:
-                raise DatasetError(f"dataset directory not empty: {out}")
+        if out.exists() and any(out.iterdir()) and not overwrite:
+            raise DatasetError(f"dataset directory not empty: {out}")
         out.parent.mkdir(parents=True, exist_ok=True)
-        tmp = Path(tempfile.mkdtemp(prefix=out.name + ".tmp-", dir=out.parent))  # atomic: build aside, then rename
+        tmp = Path(
+            tempfile.mkdtemp(prefix=out.name + ".tmp-", dir=out.parent)
+        )  # atomic: build aside, then rename
         try:
-            m = self.manifest.model_copy(update={"fingerprint": self.compute_fingerprint(), "n_samples": len(self)})
-            np.save(tmp / "waveforms.npy", np.ascontiguousarray(self.waveforms, dtype=np.float32), allow_pickle=False)
+            m = self.manifest.model_copy(
+                update={"fingerprint": self.compute_fingerprint(), "n_samples": len(self)}
+            )
+            np.save(
+                tmp / "waveforms.npy",
+                np.ascontiguousarray(self.waveforms, dtype=np.float32),
+                allow_pickle=False,
+            )
             (tmp / "samples.json").write_text(json.dumps([r.model_dump(mode="json") for r in self.records]))
             (tmp / "manifest.json").write_text(json.dumps(m.model_dump(mode="json"), indent=2))
             if out.exists():

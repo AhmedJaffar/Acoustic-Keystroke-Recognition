@@ -84,13 +84,26 @@ def utcnow() -> str:
 def code_revision() -> tuple[str, bool]:
     try:
         root = Path(__file__).resolve().parents[3]
-        rev = subprocess.run(["git", "rev-parse", "HEAD"], cwd=root, capture_output=True, text=True, timeout=5)
+        rev = subprocess.run(
+            ["git", "rev-parse", "HEAD"], cwd=root, capture_output=True, text=True, timeout=5
+        )
         if rev.returncode != 0:
             raise OSError
-        dirty = subprocess.run(["git", "status", "--porcelain", "--", "src"], cwd=root, capture_output=True, text=True, timeout=5).stdout.strip() != ""
+        dirty = (
+            subprocess.run(
+                ["git", "status", "--porcelain", "--", "src"],
+                cwd=root,
+                capture_output=True,
+                text=True,
+                timeout=5,
+            ).stdout.strip()
+            != ""
+        )
         return rev.stdout.strip(), dirty
     except (OSError, subprocess.SubprocessError):
-        return "unknown", False
+        from .. import __version__
+
+        return f"pkg-{__version__}", False  # installed (non-git) package: record the release
 
 
 def environment_metadata() -> dict[str, Any]:
@@ -101,9 +114,16 @@ def environment_metadata() -> dict[str, Any]:
     from .. import __version__
 
     return {
-        "openkeystroke": __version__, "python": sys.version.split()[0], "platform": platform.platform(), "machine": platform.machine(),
-        "numpy": np.__version__, "scipy": scipy.__version__, "sklearn": sklearn.__version__, "torch": torch.__version__,
-        "cuda_available": bool(torch.cuda.is_available()), "cpu_count": os.cpu_count(),
+        "openkeystroke": __version__,
+        "python": sys.version.split()[0],
+        "platform": platform.platform(),
+        "machine": platform.machine(),
+        "numpy": np.__version__,
+        "scipy": scipy.__version__,
+        "sklearn": sklearn.__version__,
+        "torch": torch.__version__,
+        "cuda_available": bool(torch.cuda.is_available()),
+        "cpu_count": os.cpu_count(),
     }
 
 
@@ -157,7 +177,9 @@ class ExperimentStore:
             try:
                 ver = con.execute("PRAGMA user_version").fetchone()[0]
                 if ver > len(MIGRATIONS):
-                    raise RegistryError(f"registry schema v{ver} is newer than this code (v{len(MIGRATIONS)})")
+                    raise RegistryError(
+                        f"registry schema v{ver} is newer than this code (v{len(MIGRATIONS)})"
+                    )
                 for i in range(ver, len(MIGRATIONS)):
                     for stmt in _split_sql(MIGRATIONS[i]):
                         con.execute(stmt)
@@ -172,14 +194,28 @@ class ExperimentStore:
             return int(con.execute("PRAGMA user_version").fetchone()[0])
 
     # ------------------------------------------------------------------ lifecycle
-    def create(self, cfg: ExperimentConfig, *, parent_id: str | None = None, experiment_id: str | None = None) -> str:
+    def create(
+        self, cfg: ExperimentConfig, *, parent_id: str | None = None, experiment_id: str | None = None
+    ) -> str:
         eid = experiment_id or f"exp_{datetime.now(timezone.utc):%Y%m%d-%H%M%S}_{uuid.uuid4().hex[:8]}"
         rev, dirty = code_revision()
         try:
             with self._tx() as con:
                 con.execute(
                     "INSERT INTO experiments (id,name,kind,status,config_json,config_hash,code_revision,code_dirty,environment_json,created_at,parent_id) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
-                    (eid, cfg.name, cfg.kind, "CREATED", cfg.snapshot(), cfg.hash(), rev, int(dirty), json.dumps(environment_metadata()), utcnow(), parent_id),
+                    (
+                        eid,
+                        cfg.name,
+                        cfg.kind,
+                        "CREATED",
+                        cfg.snapshot(),
+                        cfg.hash(),
+                        rev,
+                        int(dirty),
+                        json.dumps(environment_metadata()),
+                        utcnow(),
+                        parent_id,
+                    ),
                 )
         except sqlite3.IntegrityError as exc:
             raise RegistryError(f"experiment id already exists: {eid}") from exc
@@ -196,7 +232,7 @@ class ExperimentStore:
                 raise NotFoundError(f"experiment not found: {eid}")
             if new not in TRANSITIONS[row["status"]]:
                 raise LifecycleError(f"illegal transition {row['status']} -> {new} for {eid}")
-            sets = {"status": new}
+            sets: dict[str, Any] = {"status": new}
             now = utcnow()
             if new == "VALIDATED":
                 sets["validated_at"] = now
@@ -208,16 +244,28 @@ class ExperimentStore:
                 sets["error"] = error[:20000]
             sets.update(fields)
             cols = ", ".join(f"{k}=?" for k in sets)
-            con.execute(f"UPDATE experiments SET {cols} WHERE id=? AND status=?", (*sets.values(), eid, row["status"]))
-        self.log(eid, "error" if new == "FAILED" else "info", f"-> {new}" + (f": {error[:500]}" if error else ""))
+            con.execute(
+                f"UPDATE experiments SET {cols} WHERE id=? AND status=?", (*sets.values(), eid, row["status"])
+            )
+        self.log(
+            eid, "error" if new == "FAILED" else "info", f"-> {new}" + (f": {error[:500]}" if error else "")
+        )
 
     def update_progress(self, eid: str, done: int, total: int, message: str = "") -> None:
         with self._tx() as con:
-            con.execute("UPDATE experiments SET progress_done=?, progress_total=?, progress_message=? WHERE id=?", (done, total, message[:300], eid))
+            con.execute(
+                "UPDATE experiments SET progress_done=?, progress_total=?, progress_message=? WHERE id=?",
+                (done, total, message[:300], eid),
+            )
 
-    def set_dataset(self, eid: str, dataset_id: str, version: str, fingerprint: str, is_synthetic: bool) -> None:
+    def set_dataset(
+        self, eid: str, dataset_id: str, version: str, fingerprint: str, is_synthetic: bool
+    ) -> None:
         with self._tx() as con:
-            con.execute("UPDATE experiments SET dataset_id=?, dataset_version=?, dataset_fingerprint=?, dataset_is_synthetic=? WHERE id=?", (dataset_id, version, fingerprint, int(is_synthetic), eid))
+            con.execute(
+                "UPDATE experiments SET dataset_id=?, dataset_version=?, dataset_fingerprint=?, dataset_is_synthetic=? WHERE id=?",
+                (dataset_id, version, fingerprint, int(is_synthetic), eid),
+            )
 
     def request_cancel(self, eid: str) -> str:
         with self._tx() as con:
@@ -226,7 +274,9 @@ class ExperimentStore:
                 raise NotFoundError(f"experiment not found: {eid}")
             st = row["status"]
             if st in ("CREATED", "VALIDATED"):
-                con.execute("UPDATE experiments SET status='CANCELLED', finished_at=? WHERE id=?", (utcnow(), eid))
+                con.execute(
+                    "UPDATE experiments SET status='CANCELLED', finished_at=? WHERE id=?", (utcnow(), eid)
+                )
                 return "CANCELLED"
             if st == "RUNNING":
                 con.execute("UPDATE experiments SET cancel_requested=1 WHERE id=?", (eid,))
@@ -241,10 +291,12 @@ class ExperimentStore:
     def reap_stale(self) -> list[str]:
         """Mark RUNNING experiments whose process no longer exists as FAILED."""
         reaped = []
-        for r in self.list(status="RUNNING"):
+        for r in self.list_experiments(status="RUNNING"):
             pid = r.get("pid")
             if pid and not _pid_alive(int(pid)):
-                self.transition(r["id"], "FAILED", error="worker process died before completing the experiment")
+                self.transition(
+                    r["id"], "FAILED", error="worker process died before completing the experiment"
+                )
                 reaped.append(r["id"])
         return reaped
 
@@ -262,18 +314,33 @@ class ExperimentStore:
     def get_config(self, eid: str) -> ExperimentConfig:
         return ExperimentConfig.model_validate(self.get(eid)["config"])
 
-    def list(self, *, status: str | None = None, kind: str | None = None, dataset_id: str | None = None, model: str | None = None, search: str | None = None, limit: int = 500) -> list[dict[str, Any]]:
-        q, args = "SELECT * FROM experiments WHERE 1=1", []
+    def list_experiments(
+        self,
+        *,
+        status: str | None = None,
+        kind: str | None = None,
+        dataset_id: str | None = None,
+        model: str | None = None,
+        search: str | None = None,
+        limit: int = 500,
+    ) -> list[dict[str, Any]]:
+        q = "SELECT * FROM experiments WHERE 1=1"
+        args: list[Any] = []
         if status:
-            q += " AND status=?"; args.append(status)
+            q += " AND status=?"
+            args.append(status)
         if kind:
-            q += " AND kind=?"; args.append(kind)
+            q += " AND kind=?"
+            args.append(kind)
         if dataset_id:
-            q += " AND dataset_id=?"; args.append(dataset_id)
+            q += " AND dataset_id=?"
+            args.append(dataset_id)
         if search:
-            q += " AND (name LIKE ? OR id LIKE ?)"; args += [f"%{search}%", f"%{search}%"]
+            q += " AND (name LIKE ? OR id LIKE ?)"
+            args += [f"%{search}%", f"%{search}%"]
         if model:
-            q += " AND config_json LIKE ?"; args.append(f'%"name":"{model}"%')
+            q += " AND config_json LIKE ?"
+            args.append(f'%"name":"{model}"%')
         q += " ORDER BY created_at DESC, id DESC LIMIT ?"
         args.append(limit)
         with self._conn() as con:
@@ -294,26 +361,53 @@ class ExperimentStore:
     # ------------------------------------------------------------------ events
     def log(self, eid: str, level: str, message: str) -> None:
         with self._tx() as con:
-            con.execute("INSERT INTO events (experiment_id, ts, level, message) VALUES (?,?,?,?)", (eid, utcnow(), level, message[:5000]))
+            con.execute(
+                "INSERT INTO events (experiment_id, ts, level, message) VALUES (?,?,?,?)",
+                (eid, utcnow(), level, message[:5000]),
+            )
 
     def events(self, eid: str) -> list[dict[str, Any]]:
         with self._conn() as con:
-            return [dict(r) for r in con.execute("SELECT ts, level, message FROM events WHERE experiment_id=? ORDER BY id", (eid,))]
+            return [
+                dict(r)
+                for r in con.execute(
+                    "SELECT ts, level, message FROM events WHERE experiment_id=? ORDER BY id", (eid,)
+                )
+            ]
 
     # ------------------------------------------------------------------ metrics
     def add_metrics(self, eid: str, rows: list[dict[str, Any]]) -> None:
         with self._tx() as con:
             con.executemany(
                 "INSERT INTO metrics (experiment_id,variant,protocol,model,condition_name,attacker,seed,split,name,value) VALUES (?,?,?,?,?,?,?,?,?,?)",
-                [(eid, r["variant"], r["protocol"], r["model"], r["condition"], r["attacker"], int(r["seed"]), r["split"], r["name"], float(r["value"])) for r in rows],
+                [
+                    (
+                        eid,
+                        r["variant"],
+                        r["protocol"],
+                        r["model"],
+                        r["condition"],
+                        r["attacker"],
+                        int(r["seed"]),
+                        r["split"],
+                        r["name"],
+                        float(r["value"]),
+                    )
+                    for r in rows
+                ],
             )
 
     def metrics(self, eid: str, *, name: str | None = None, split: str | None = None) -> list[dict[str, Any]]:
-        q, args = "SELECT variant,protocol,model,condition_name AS condition,attacker,seed,split,name,value FROM metrics WHERE experiment_id=?", [eid]
+        q, args = (
+            "SELECT variant,protocol,model,condition_name AS condition,attacker,seed,split,name,value FROM metrics WHERE experiment_id=?",
+            [eid],
+        )
         if name:
-            q += " AND name=?"; args.append(name)
+            q += " AND name=?"
+            args.append(name)
         if split:
-            q += " AND split=?"; args.append(split)
+            q += " AND split=?"
+            args.append(split)
         with self._conn() as con:
             return [dict(r) for r in con.execute(q, args)]
 
@@ -323,7 +417,9 @@ class ExperimentStore:
             raise RegistryError(f"invalid artifact name: {name!r}")
         return self.artifacts_dir / eid / name
 
-    def put_bytes(self, eid: str, name: str, data: bytes, kind: str = "file", extra: dict[str, Any] | None = None) -> Path:
+    def put_bytes(
+        self, eid: str, name: str, data: bytes, kind: str = "file", extra: dict[str, Any] | None = None
+    ) -> Path:
         """Atomic write (tmp file + fsync + rename), then register with sha256."""
         p = self._artifact_path(eid, name)
         p.parent.mkdir(parents=True, exist_ok=True)
@@ -345,34 +441,53 @@ class ExperimentStore:
 
     def put_npz(self, eid: str, name: str, **arrays: np.ndarray) -> Path:
         buf = io.BytesIO()
-        np.savez_compressed(buf, **arrays)
+        payload: dict[str, Any] = dict(arrays)
+        np.savez_compressed(buf, **payload)
         return self.put_bytes(eid, name, buf.getvalue(), "npz")
 
     def register_dir(self, eid: str, name: str, kind: str, hashes: dict[str, str]) -> None:
         p = self._artifact_path(eid, name)
         size = sum(f.stat().st_size for f in p.rglob("*") if f.is_file())
-        self._register(eid, name, kind, p, hashlib.sha256(json.dumps(hashes, sort_keys=True).encode()).hexdigest(), size, {"file_hashes": hashes})
+        self._register(
+            eid,
+            name,
+            kind,
+            p,
+            hashlib.sha256(json.dumps(hashes, sort_keys=True).encode()).hexdigest(),
+            size,
+            {"file_hashes": hashes},
+        )
 
     def artifact_dir(self, eid: str, name: str) -> Path:
         p = self._artifact_path(eid, name)
         p.mkdir(parents=True, exist_ok=True)
         return p
 
-    def _register(self, eid: str, name: str, kind: str, path: Path, sha: str, size: int, extra: dict[str, Any] | None) -> None:
+    def _register(
+        self, eid: str, name: str, kind: str, path: Path, sha: str, size: int, extra: dict[str, Any] | None
+    ) -> None:
         rel = str(path.relative_to(self.artifacts_dir))
         with self._tx() as con:
-            con.execute("INSERT OR REPLACE INTO artifacts (experiment_id,name,kind,relpath,sha256,size_bytes,created_at,extra_json) VALUES (?,?,?,?,?,?,?,?)", (eid, name, kind, rel, sha, size, utcnow(), json.dumps(extra or {})))
+            con.execute(
+                "INSERT OR REPLACE INTO artifacts (experiment_id,name,kind,relpath,sha256,size_bytes,created_at,extra_json) VALUES (?,?,?,?,?,?,?,?)",
+                (eid, name, kind, rel, sha, size, utcnow(), json.dumps(extra or {})),
+            )
 
     def list_artifacts(self, eid: str) -> list[dict[str, Any]]:
         with self._conn() as con:
-            rows = [dict(r) for r in con.execute("SELECT * FROM artifacts WHERE experiment_id=? ORDER BY name", (eid,))]
+            rows = [
+                dict(r)
+                for r in con.execute("SELECT * FROM artifacts WHERE experiment_id=? ORDER BY name", (eid,))
+            ]
         for r in rows:
             r["extra"] = json.loads(r.pop("extra_json") or "{}")
         return rows
 
     def artifact_path(self, eid: str, name: str) -> Path:
         with self._conn() as con:
-            row = con.execute("SELECT relpath FROM artifacts WHERE experiment_id=? AND name=?", (eid, name)).fetchone()
+            row = con.execute(
+                "SELECT relpath FROM artifacts WHERE experiment_id=? AND name=?", (eid, name)
+            ).fetchone()
         if row is None:
             raise NotFoundError(f"artifact '{name}' not found for {eid}")
         return self.artifacts_dir / row["relpath"]
@@ -420,7 +535,18 @@ class ExperimentStore:
         if fmt == "json":
             path.write_text(json.dumps(rows, indent=1))
         elif fmt == "csv":
-            cols = ["experiment_id", "variant", "protocol", "model", "condition", "attacker", "seed", "split", "name", "value"]
+            cols = [
+                "experiment_id",
+                "variant",
+                "protocol",
+                "model",
+                "condition",
+                "attacker",
+                "seed",
+                "split",
+                "name",
+                "value",
+            ]
             with path.open("w", newline="") as f:
                 w = csv.DictWriter(f, fieldnames=cols)
                 w.writeheader()

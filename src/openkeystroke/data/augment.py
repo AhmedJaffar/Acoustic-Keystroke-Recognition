@@ -15,7 +15,8 @@ def _gain(x: np.ndarray, rng: np.random.Generator, db: float = 3.0) -> np.ndarra
 def _shift(x: np.ndarray, rng: np.random.Generator, max_ms: float = 5.0, sr: float = 16000) -> np.ndarray:
     m = int(max_ms * sr / 1000)
     out = np.zeros_like(x)
-    for i, s in enumerate(rng.integers(-m, m + 1, x.shape[0])):
+    shifts: list[int] = np.asarray(rng.integers(-m, m + 1, size=x.shape[0])).tolist()
+    for i, s in enumerate(shifts):
         if s >= 0:
             out[i, s:] = x[i, : x.shape[1] - s]
         else:
@@ -23,7 +24,9 @@ def _shift(x: np.ndarray, rng: np.random.Generator, max_ms: float = 5.0, sr: flo
     return out
 
 
-def _noise(x: np.ndarray, rng: np.random.Generator, snr_db_min: float = 20.0, snr_db_max: float = 35.0) -> np.ndarray:
+def _noise(
+    x: np.ndarray, rng: np.random.Generator, snr_db_min: float = 20.0, snr_db_max: float = 35.0
+) -> np.ndarray:
     snr = rng.uniform(snr_db_min, snr_db_max, (x.shape[0], 1))
     p = (x.astype(np.float64) ** 2).mean(axis=1, keepdims=True) + 1e-20
     return x + rng.standard_normal(x.shape) * np.sqrt(p / 10 ** (snr / 10))

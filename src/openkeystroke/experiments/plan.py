@@ -58,7 +58,11 @@ def conditions(cfg: ExperimentConfig) -> list[Condition]:
     conds = [Condition(d.name, d) for d in cfg.defenses]
     for snr in cfg.noise_snr_db:
         name = f"noise_{snr:g}dB"
-        conds.append(Condition(name, DefenseConfig(name=name, steps=[DefenseStep(type="noise", params={"snr_db": snr})])))
+        conds.append(
+            Condition(
+                name, DefenseConfig(name=name, steps=[DefenseStep(type="noise", params={"snr_db": snr})])
+            )
+        )
     names = [c.name for c in conds]
     if len(set(names)) != len(names):
         raise ConfigError("defense / noise condition names collide")
@@ -79,7 +83,9 @@ def build_jobs(cfg: ExperimentConfig) -> list[Job]:
             for mi, label in enumerate(labels):
                 for seed in vcfg.seeds:
                     if "static" in vcfg.attacker_modes or not conds:
-                        jobs.append(Job(variant, vcfg, protocol, mi, label, seed, "static", CLEAN, (CLEAN, *conds)))
+                        jobs.append(
+                            Job(variant, vcfg, protocol, mi, label, seed, "static", CLEAN, (CLEAN, *conds))
+                        )
                     if "adaptive" in vcfg.attacker_modes:
                         for c in conds:
                             jobs.append(Job(variant, vcfg, protocol, mi, label, seed, "adaptive", c, (c,)))

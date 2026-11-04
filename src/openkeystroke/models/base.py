@@ -33,7 +33,9 @@ class BaseClassifier:
     family = "classical"
     input_kind = "vector"
 
-    def __init__(self, n_classes: int, input_shape: tuple[int, ...], params: dict[str, Any], seed: int) -> None:
+    def __init__(
+        self, n_classes: int, input_shape: tuple[int, ...], params: dict[str, Any], seed: int
+    ) -> None:
         self.n_classes = n_classes
         self.input_shape = tuple(input_shape)
         self.params = dict(params)
@@ -64,7 +66,9 @@ class BaseClassifier:
         raise NotImplementedError
 
     @classmethod
-    def load(cls, directory: Path, expected_sha256: dict[str, str] | None = None) -> BaseClassifier:  # pragma: no cover
+    def load(
+        cls, directory: Path, expected_sha256: dict[str, str] | None = None
+    ) -> BaseClassifier:  # pragma: no cover
         raise NotImplementedError
 
     def num_parameters(self) -> int:

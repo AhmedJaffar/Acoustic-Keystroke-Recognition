@@ -21,7 +21,7 @@ class LocalExecutor:
 
     def running(self) -> int:
         self.ws.store.reap_stale()
-        return len(self.ws.store.list(status="RUNNING"))
+        return len(self.ws.store.list_experiments(status="RUNNING"))
 
     def submit(self, eid: str, *, wait_for_slot: bool = False, timeout: float = 600.0) -> subprocess.Popen:
         """Launch `python -m openkeystroke experiment run --id <eid>` detached. Raises if the concurrency cap is hit."""
@@ -36,7 +36,22 @@ class LocalExecutor:
                     log.mkdir(exist_ok=True)
                     out = open(log / f"{eid}.log", "ab")  # noqa: SIM115 - handed to the child
                     # claim the slot synchronously so concurrent submitters see it
-                    proc = subprocess.Popen([sys.executable, "-m", "openkeystroke", "--home", str(self.ws.root), "experiment", "run", "--id", eid], stdout=out, stderr=subprocess.STDOUT, start_new_session=True)
+                    proc = subprocess.Popen(
+                        [
+                            sys.executable,
+                            "-m",
+                            "openkeystroke",
+                            "--home",
+                            str(self.ws.root),
+                            "experiment",
+                            "run",
+                            "--id",
+                            eid,
+                        ],
+                        stdout=out,
+                        stderr=subprocess.STDOUT,
+                        start_new_session=True,
+                    )
                     self._procs[eid] = proc
                     return proc
             if not wait_for_slot or time.monotonic() > deadline:

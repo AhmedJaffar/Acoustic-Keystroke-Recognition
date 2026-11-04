@@ -77,13 +77,19 @@ def generate_synthetic(cfg: SyntheticConfig) -> Dataset:
     class_names = [f"cat_{k:02d}" for k in range(cfg.n_classes)]
     t = np.arange(n) / sr
     records: list[SampleRecord] = []
-    wave = np.zeros((cfg.n_devices * cfg.sessions_per_device * cfg.n_classes * cfg.samples_per_class_per_session, n), dtype=np.float32)
+    wave = np.zeros(
+        (cfg.n_devices * cfg.sessions_per_device * cfg.n_classes * cfg.samples_per_class_per_session, n),
+        dtype=np.float32,
+    )
     dataset_id = f"synthetic-{config_hash(cfg, 10)}"
     idx = 0
     session_counter = 0
     for d in range(cfg.n_devices):
         resp = _device_response(cfg, d, n // 2 + 1, sr)
-        kb, mic = KEYBOARD_CATEGORIES[d % len(KEYBOARD_CATEGORIES)], MIC_CATEGORIES[(d + d // 4) % len(MIC_CATEGORIES)]
+        kb, mic = (
+            KEYBOARD_CATEGORIES[d % len(KEYBOARD_CATEGORIES)],
+            MIC_CATEGORIES[(d + d // 4) % len(MIC_CATEGORIES)],
+        )
         for s in range(cfg.sessions_per_device):
             srng = np.random.default_rng([cfg.seed, 4, d, s])
             env_name = cfg.environments[session_counter % len(cfg.environments)]
@@ -98,7 +104,7 @@ def generate_synthetic(cfg: SyntheticConfig) -> Dataset:
                 ir[0] = 1.0
             for c in range(cfg.n_classes):
                 cp = classes[c]
-                for r in range(cfg.samples_per_class_per_session):
+                for _ in range(cfg.samples_per_class_per_session):
                     rng = np.random.default_rng([cfg.seed, 2, idx])
                     onset = rng.uniform(0.008, 0.025)
                     amp = np.exp(rng.normal(0, 0.2))
@@ -108,7 +114,12 @@ def generate_synthetic(cfg: SyntheticConfig) -> Dataset:
                     x = np.zeros(n)
                     for fr, a, tau in zip(cp["freqs"], cp["amps"], cp["taus"], strict=True):
                         ph = rng.uniform(0, 2 * np.pi)
-                        x += a * np.exp(-tt / (tau * np.exp(rng.normal(0, 0.1)))) * np.sin(2 * np.pi * fr * fj * tt + ph) * gate
+                        x += (
+                            a
+                            * np.exp(-tt / (tau * np.exp(rng.normal(0, 0.1))))
+                            * np.sin(2 * np.pi * fr * fj * tt + ph)
+                            * gate
+                        )
                     # impact click: short low-passed noise burst
                     clk_n = int(0.0015 * sr)
                     sos = ssig.butter(2, min(cp["click_cut"], sr / 2 * 0.9), fs=sr, output="sos")
@@ -153,7 +164,11 @@ def generate_synthetic(cfg: SyntheticConfig) -> Dataset:
         n_samples=len(records),
         n_waveform_samples=n,
         class_names=class_names,
-        provenance={"generator": GENERATOR_VERSION, "config": cfg.model_dump(mode="json"), "note": "SYNTHETIC data; results do not transfer to real-world recordings"},
+        provenance={
+            "generator": GENERATOR_VERSION,
+            "config": cfg.model_dump(mode="json"),
+            "note": "SYNTHETIC data; results do not transfer to real-world recordings",
+        },
         consent=None,
         created_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
     )

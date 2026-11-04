@@ -25,7 +25,7 @@ def confusion_png(cm: list[list[int]], classes: list[str], title: str) -> bytes:
     ax.imshow(a / np.maximum(a.sum(1, keepdims=True), 1), cmap="Blues", vmin=0, vmax=1)
     for i in range(a.shape[0]):
         for j in range(a.shape[1]):
-            ax.text(j, i, int(a[i, j]), ha="center", va="center", fontsize=7)
+            ax.text(j, i, str(int(a[i, j])), ha="center", va="center", fontsize=7)
     ax.set_xticks(range(len(classes)), classes, rotation=60, fontsize=7)
     ax.set_yticks(range(len(classes)), classes, fontsize=7)
     ax.set_xlabel("predicted")

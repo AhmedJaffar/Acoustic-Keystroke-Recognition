@@ -15,7 +15,17 @@ from .config import (
 )
 from .errors import ConfigError
 
-PRESET_KINDS = ("single", "repeated_seed", "model_comparison", "sweep", "defense_comparison", "cross_device", "cross_session", "noise_robustness", "ablation")
+PRESET_KINDS = (
+    "single",
+    "repeated_seed",
+    "model_comparison",
+    "sweep",
+    "defense_comparison",
+    "cross_device",
+    "cross_session",
+    "noise_robustness",
+    "ablation",
+)
 
 
 def _d(name: str, *steps: tuple[str, dict]) -> DefenseConfig:
@@ -40,7 +50,13 @@ def default_defenses() -> list[DefenseConfig]:
     ]
 
 
-def preset_config(kind: str = "single", *, name: str | None = None, synthetic: SyntheticConfig | None = None, seeds: list[int] | None = None) -> ExperimentConfig:
+def preset_config(
+    kind: str = "single",
+    *,
+    name: str | None = None,
+    synthetic: SyntheticConfig | None = None,
+    seeds: list[int] | None = None,
+) -> ExperimentConfig:
     if kind not in PRESET_KINDS:
         raise ConfigError(f"unknown preset '{kind}'. Available: {list(PRESET_KINDS)}")
     deep = ModelConfig(name="cnn1d", training=TrainConfig(epochs=12, patience=5))
@@ -53,19 +69,38 @@ def preset_config(kind: str = "single", *, name: str | None = None, synthetic: S
         hypothesis="",
     )
     if kind == "single":
-        kw["hypothesis"] = "A linear model separates the synthetic acoustic categories on unseen sessions above chance."
+        kw["hypothesis"] = (
+            "A linear model separates the synthetic acoustic categories on unseen sessions above chance."
+        )
     elif kind == "repeated_seed":
         kw["hypothesis"] = "Session-disjoint accuracy is stable across random group assignments."
     elif kind == "model_comparison":
-        kw["models"] = [ModelConfig(name="nearest_centroid"), ModelConfig(name="logreg"), ModelConfig(name="random_forest"), ModelConfig(name="svm"), deep, ModelConfig(name="cnn2d", training=TrainConfig(epochs=15, patience=5))]
-        kw["hypothesis"] = "Learned waveform/spectrogram models outperform hand-crafted-feature baselines on held-out sessions."
+        kw["models"] = [
+            ModelConfig(name="nearest_centroid"),
+            ModelConfig(name="logreg"),
+            ModelConfig(name="random_forest"),
+            ModelConfig(name="svm"),
+            deep,
+            ModelConfig(
+                name="cnn2d",
+                params={"channels": [32, 64]},
+                training=TrainConfig(epochs=40, lr=5e-3, patience=8),
+            ),
+        ]
+        kw["hypothesis"] = (
+            "Learned waveform/spectrogram models outperform hand-crafted-feature baselines on held-out sessions."
+        )
     elif kind == "sweep":
         kw["sweep"] = {"models.0.params.C": [0.01, 0.1, 1.0, 10.0]}
-        kw["hypothesis"] = "Regularisation strength affects held-out accuracy; the best C is selected on validation, not test."
+        kw["hypothesis"] = (
+            "Regularisation strength affects held-out accuracy; the best C is selected on validation, not test."
+        )
     elif kind == "defense_comparison":
         kw["models"] = [ModelConfig(name="random_forest"), deep]
         kw["defenses"] = default_defenses()
-        kw["hypothesis"] = "Signal transformations reduce class distinguishability for static and adaptive attackers at acceptable distortion."
+        kw["hypothesis"] = (
+            "Signal transformations reduce class distinguishability for static and adaptive attackers at acceptable distortion."
+        )
     elif kind == "cross_device":
         kw["models"] = [ModelConfig(name="logreg"), deep]
         kw["hypothesis"] = "Accuracy degrades on unseen devices relative to in-distribution evaluation."

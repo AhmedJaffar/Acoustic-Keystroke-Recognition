@@ -35,7 +35,9 @@ def _sha256(path: Path) -> str:
 
 def _check_id(value: Any, field: str) -> str:
     if not isinstance(value, str) or not _ID.match(value):
-        raise DatasetError(f"{field}={value!r}: must match [A-Za-z0-9_.-]{{1,64}} (no personal identifiers or paths)")
+        raise DatasetError(
+            f"{field}={value!r}: must match [A-Za-z0-9_.-]{{1,64}} (no personal identifiers or paths)"
+        )
     return value
 
 
@@ -56,7 +58,9 @@ def _normalise_audio(path: Path, target_sr: int, window_s: float) -> np.ndarray:
     return np.pad(seg, (0, n - seg.size)).astype(np.float32)
 
 
-def ingest_consented_recordings(manifest_path: str | Path, out_dir: str | Path, *, target_sample_rate: int = 16000, window_s: float = 0.1) -> Dataset:
+def ingest_consented_recordings(
+    manifest_path: str | Path, out_dir: str | Path, *, target_sample_rate: int = 16000, window_s: float = 0.1
+) -> Dataset:
     """Build a dataset from a consent manifest (JSON). Recording paths must be relative and stay inside the manifest's directory."""
     mp = Path(manifest_path)
     if not mp.is_file():
@@ -69,7 +73,9 @@ def ingest_consented_recordings(manifest_path: str | Path, out_dir: str | Path, 
         raise DatasetError(f"consent manifest is not valid JSON: {exc}") from exc
     consent = man.get("consent")
     if not isinstance(consent, dict):
-        raise ConsentError("manifest has no 'consent' record; refusing to ingest recordings without documented consent")
+        raise ConsentError(
+            "manifest has no 'consent' record; refusing to ingest recordings without documented consent"
+        )
     missing = [k for k in REQUIRED_CONSENT if not consent.get(k)]
     if missing:
         raise ConsentError(f"consent record missing or false for: {missing}")
@@ -123,7 +129,11 @@ def ingest_consented_recordings(manifest_path: str | Path, out_dir: str | Path, 
                 environment=env,
                 noise={},
                 provenance=f"consented-lab-recording; protocol={consent['protocol_id']}",
-                lineage=["ingest:mono-downmix", f"ingest:resample->{target_sample_rate}", f"ingest:window={window_s}s"],
+                lineage=[
+                    "ingest:mono-downmix",
+                    f"ingest:resample->{target_sample_rate}",
+                    f"ingest:window={window_s}s",
+                ],
             )
         )
     wave = np.stack(waves)
@@ -136,7 +146,11 @@ def ingest_consented_recordings(manifest_path: str | Path, out_dir: str | Path, 
         n_samples=len(records),
         n_waveform_samples=wave.shape[1],
         class_names=class_names,
-        provenance={"source_manifest_sha256": _sha256(mp), "ingested_at": datetime.now(timezone.utc).isoformat(timespec="seconds"), "n_files": len(recs)},
+        provenance={
+            "source_manifest_sha256": _sha256(mp),
+            "ingested_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            "n_files": len(recs),
+        },
         consent=consent,
         created_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
     )

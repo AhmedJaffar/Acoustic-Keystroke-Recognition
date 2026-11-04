@@ -23,7 +23,9 @@ class FeatureCache:
 
     @staticmethod
     def key(dataset_fingerprint: str, waveform_key: object, extractor_id: str) -> str:
-        return hashlib.sha256(canonical_json({"ds": dataset_fingerprint, "wave": waveform_key, "ex": extractor_id}).encode()).hexdigest()
+        return hashlib.sha256(
+            canonical_json({"ds": dataset_fingerprint, "wave": waveform_key, "ex": extractor_id}).encode()
+        ).hexdigest()
 
     def _path(self, key: str) -> Path:
         assert self.root is not None
@@ -42,7 +44,7 @@ class FeatureCache:
             except (ValueError, OSError):
                 p.unlink(missing_ok=True)  # corrupted partial file: recompute
         self.misses += 1
-        arr = fn()
+        arr = np.ascontiguousarray(fn())  # return exactly what a warm read would give
         p.parent.mkdir(parents=True, exist_ok=True)
         fd, tmp = tempfile.mkstemp(dir=p.parent, suffix=".tmp")
         try:

@@ -49,7 +49,9 @@ def validate_dataset(ds: Dataset, *, check_fingerprint: bool = True) -> Validati
         rep.errors.append("waveforms contain NaN/Inf")
     bad_sr = {r.sample_rate for r in ds.records} - {m.sample_rate}
     if bad_sr:
-        rep.errors.append(f"records with sample rates {sorted(bad_sr)} differ from dataset sample rate {m.sample_rate}")
+        rep.errors.append(
+            f"records with sample rates {sorted(bad_sr)} differ from dataset sample rate {m.sample_rate}"
+        )
     unknown = {r.label for r in ds.records} - set(m.class_names)
     if unknown:
         rep.errors.append(f"labels not declared in class_names: {sorted(unknown)}")
@@ -71,15 +73,21 @@ def validate_dataset(ds: Dataset, *, check_fingerprint: bool = True) -> Validati
     if clipped > 0.05 * len(ds):
         rep.warnings.append(f"{clipped} samples ({clipped / len(ds):.0%}) are clipped")
     counts = np.bincount(ds.labels, minlength=len(m.class_names))
-    if counts.min() == 0:
+    cmin, cmax = int(np.min(counts)), int(np.max(counts))
+    if cmin == 0:
         rep.warnings.append("some declared classes have no samples")
-    elif counts.max() > 3 * counts.min():
-        rep.warnings.append(f"class imbalance: max/min = {counts.max() / counts.min():.1f}")
+    elif cmax > 3 * cmin:
+        rep.warnings.append(f"class imbalance: max/min = {cmax / cmin:.1f}")
     for kind in ("session", "device"):
         n = len(set(ds.group_array(kind).tolist()))
         if n < 3:
             rep.warnings.append(f"only {n} {kind} group(s): {kind}-disjoint evaluation unavailable")
     if m.is_synthetic:
         rep.warnings.append("SYNTHETIC dataset: results are not evidence of real-world performance")
-    rep.info = {"n_samples": len(ds), "n_classes": len(m.class_names), "fingerprint": m.fingerprint, "is_synthetic": m.is_synthetic}
+    rep.info = {
+        "n_samples": len(ds),
+        "n_classes": len(m.class_names),
+        "fingerprint": m.fingerprint,
+        "is_synthetic": m.is_synthetic,
+    }
     return rep

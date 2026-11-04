@@ -103,7 +103,9 @@ def get_window(name: str, n: int) -> np.ndarray:
         raise DSPError(f"unknown window '{name}'") from exc
 
 
-def stft(x: np.ndarray, n_fft: int = 256, hop: int = 64, window: str = "hann", center: bool = True) -> np.ndarray:
+def stft(
+    x: np.ndarray, n_fft: int = 256, hop: int = 64, window: str = "hann", center: bool = True
+) -> np.ndarray:
     """Complex STFT, shape (N, n_fft//2+1, frames). Reflect-padded when center=True."""
     x = as_batch(x)
     if hop <= 0 or hop > n_fft:
@@ -124,7 +126,12 @@ def stft(x: np.ndarray, n_fft: int = 256, hop: int = 64, window: str = "hann", c
 
 
 def istft(
-    spec: np.ndarray, n_fft: int = 256, hop: int = 64, window: str = "hann", length: int | None = None, center: bool = True
+    spec: np.ndarray,
+    n_fft: int = 256,
+    hop: int = 64,
+    window: str = "hann",
+    length: int | None = None,
+    center: bool = True,
 ) -> np.ndarray:
     """Inverse STFT via weighted overlap-add (least-squares window normalisation)."""
     if spec.ndim != 3 or spec.shape[1] != n_fft // 2 + 1:
@@ -158,15 +165,17 @@ def log_magnitude(spec: np.ndarray, eps: float = EPS) -> np.ndarray:
     return (20.0 * np.log10(np.maximum(np.abs(spec), eps))).astype(spec.real.dtype)
 
 
-def _hz_to_mel(f: np.ndarray | float) -> np.ndarray | float:
-    return 2595.0 * np.log10(1.0 + np.asarray(f) / 700.0)
+def _hz_to_mel(f: np.ndarray | float) -> np.ndarray:
+    return np.asarray(2595.0 * np.log10(1.0 + np.asarray(f) / 700.0))
 
 
-def _mel_to_hz(m: np.ndarray | float) -> np.ndarray | float:
-    return 700.0 * (10.0 ** (np.asarray(m) / 2595.0) - 1.0)
+def _mel_to_hz(m: np.ndarray | float) -> np.ndarray:
+    return np.asarray(700.0 * (10.0 ** (np.asarray(m) / 2595.0) - 1.0))
 
 
-def mel_filterbank(sr: int, n_fft: int, n_mels: int, f_min: float = 0.0, f_max: float | None = None) -> np.ndarray:
+def mel_filterbank(
+    sr: int, n_fft: int, n_mels: int, f_min: float = 0.0, f_max: float | None = None
+) -> np.ndarray:
     """Triangular HTK-mel filterbank, area-normalised. Shape (n_mels, n_fft//2+1)."""
     f_max = sr / 2 if f_max is None else f_max
     if not (0 <= f_min < f_max <= sr / 2):

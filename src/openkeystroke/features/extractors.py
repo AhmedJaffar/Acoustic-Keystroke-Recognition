@@ -50,7 +50,8 @@ class FeatureExtractor:
     def batched(self, x: np.ndarray, batch_size: int = 256) -> np.ndarray:
         """Memory-bounded `compute` over large arrays (works on memory-mapped inputs)."""
         parts = [self.compute(np.asarray(x[i : i + batch_size])) for i in range(0, len(x), batch_size)]
-        return np.concatenate(parts, axis=0)
+        # always C-contiguous: memory layout must never influence downstream numerics (see tests)
+        return np.ascontiguousarray(np.concatenate(parts, axis=0))
 
     def output_shape(self, n_waveform_samples: int) -> tuple[int, ...]:
         probe = np.random.default_rng(0).standard_normal((2, n_waveform_samples)).astype(np.float32)
@@ -59,7 +60,12 @@ class FeatureExtractor:
         return tuple(self.transform(probe).shape[1:])
 
     def config_dict(self) -> dict[str, Any]:
-        return {"name": self.name, "version": self.version, "sample_rate": self.sample_rate, "cfg": self.cfg.model_dump(mode="json")}
+        return {
+            "name": self.name,
+            "version": self.version,
+            "sample_rate": self.sample_rate,
+            "cfg": self.cfg.model_dump(mode="json"),
+        }
 
     def cache_id(self) -> str:
         """Identifies the stateless `compute` output (excludes fitted state)."""
@@ -75,7 +81,8 @@ class FeatureExtractor:
         p = Path(path)
         p.mkdir(parents=True, exist_ok=True)
         (p / "extractor.json").write_text(json.dumps(self.config_dict(), indent=2))
-        np.savez(p / "state.npz", **self.get_state())
+        state: dict[str, Any] = dict(self.get_state())
+        np.savez(p / "state.npz", **state)
 
     @staticmethod
     def load(path: str | Path) -> FeatureExtractor:
@@ -96,7 +103,9 @@ class FeatureExtractor:
         return np.linspace(0, self.sample_rate / 2, self.cfg.n_fft // 2 + 1)
 
     def _mel_fb(self) -> np.ndarray:
-        return ops.mel_filterbank(self.sample_rate, self.cfg.n_fft, self.cfg.n_mels, self.cfg.f_min, self.cfg.f_max)
+        return ops.mel_filterbank(
+            self.sample_rate, self.cfg.n_fft, self.cfg.n_mels, self.cfg.f_min, self.cfg.f_max
+        )
 
 
 def _safe(a: np.ndarray) -> np.ndarray:
@@ -133,8 +142,17 @@ class TimeStats(FeatureExtractor):
         seg_e = np.stack([np.log10((x[:, s] ** 2).mean(axis=1) + 1e-12) for s in seg], axis=1)
         feats = np.column_stack(
             [
-                np.log10(rms + 1e-9), np.log10(peak + 1e-9), peak / np.maximum(rms, 1e-9), ops.zero_crossing_rate(x), peak_pos, decay * 100,
-                _safe(sstats.skew(x, axis=1)), _safe(sstats.kurtosis(x, axis=1)), env.mean(axis=1), env.std(axis=1), seg_e,
+                np.log10(rms + 1e-9),
+                np.log10(peak + 1e-9),
+                peak / np.maximum(rms, 1e-9),
+                ops.zero_crossing_rate(x),
+                peak_pos,
+                decay * 100,
+                _safe(sstats.skew(x, axis=1)),
+                _safe(sstats.kurtosis(x, axis=1)),
+                env.mean(axis=1),
+                env.std(axis=1),
+                seg_e,
             ]
         )
         return feats.astype(np.float32)
@@ -148,11 +166,19 @@ class FreqStats(FeatureExtractor):
         mag = self._mag(ops.as_batch(x).astype(np.float64))
         f = self._freqs()
         cols = []
-        for d in (ops.spectral_centroid(mag, f), ops.spectral_bandwidth(mag, f), ops.spectral_rolloff(mag, f), ops.spectral_flux(mag)):
+        for d in (
+            ops.spectral_centroid(mag, f),
+            ops.spectral_bandwidth(mag, f),
+            ops.spectral_rolloff(mag, f),
+            ops.spectral_flux(mag),
+        ):
             cols += [d.mean(axis=1), d.std(axis=1)]
         pw = (mag**2).mean(axis=2)  # (N, F)
         edges = np.linspace(0, pw.shape[1], self.N_BANDS + 1).astype(int)
-        bands = np.stack([np.log10(pw[:, a:b].sum(axis=1) + 1e-12) for a, b in zip(edges[:-1], edges[1:], strict=True)], axis=1)
+        bands = np.stack(
+            [np.log10(pw[:, a:b].sum(axis=1) + 1e-12) for a, b in zip(edges[:-1], edges[1:], strict=True)],
+            axis=1,
+        )
         return np.column_stack([*cols, bands]).astype(np.float32)
 
 
@@ -182,7 +208,9 @@ class Spectrogram(FeatureExtractor):
     kind = "tensor"
 
     def compute(self, x: np.ndarray) -> np.ndarray:
-        return ops.log_magnitude(ops.stft(ops.as_batch(x), self.cfg.n_fft, self.cfg.hop, self.cfg.window)).astype(np.float32)
+        return ops.log_magnitude(
+            ops.stft(ops.as_batch(x), self.cfg.n_fft, self.cfg.hop, self.cfg.window)
+        ).astype(np.float32)
 
 
 class Mel(FeatureExtractor):
@@ -246,7 +274,18 @@ class PCAEmbedding(FeatureExtractor):
 
 
 EXTRACTORS: dict[str, type[FeatureExtractor]] = {
-    c.name: c for c in (WaveformExtractor, TimeStats, FreqStats, CombinedStats, MFCC, Spectrogram, Mel, LogMel, PCAEmbedding)
+    c.name: c
+    for c in (
+        WaveformExtractor,
+        TimeStats,
+        FreqStats,
+        CombinedStats,
+        MFCC,
+        Spectrogram,
+        Mel,
+        LogMel,
+        PCAEmbedding,
+    )
 }
 
 

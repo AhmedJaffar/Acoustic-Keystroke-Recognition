@@ -11,8 +11,8 @@ from typing import Any
 
 import joblib
 import numpy as np
-from sklearn.ensemble import RandomForestClassifier
 from sklearn.calibration import CalibratedClassifierCV
+from sklearn.ensemble import RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
 from sklearn.svm import SVC
 
@@ -48,7 +48,9 @@ class _Classical(BaseClassifier):
     input_kind = "vector"
     kind = "base"
 
-    def __init__(self, n_classes: int, input_shape: tuple[int, ...], params: dict[str, Any], seed: int) -> None:
+    def __init__(
+        self, n_classes: int, input_shape: tuple[int, ...], params: dict[str, Any], seed: int
+    ) -> None:
         super().__init__(n_classes, input_shape, params, seed)
         if len(input_shape) != 1:
             raise ModelError(f"{self.kind} expects vector features; got input shape {input_shape}")
@@ -59,7 +61,18 @@ class _Classical(BaseClassifier):
     def _fit_est(self, Xs: np.ndarray, y: np.ndarray) -> None:  # pragma: no cover - abstract
         raise NotImplementedError
 
-    def fit(self, X_train, y_train, X_val=None, y_val=None, *, progress=None, should_cancel=None, checkpoint_dir=None, resume=False) -> TrainingHistory:
+    def fit(
+        self,
+        X_train,
+        y_train,
+        X_val=None,
+        y_val=None,
+        *,
+        progress=None,
+        should_cancel=None,
+        checkpoint_dir=None,
+        resume=False,
+    ) -> TrainingHistory:
         t0 = time.perf_counter()
         X_train = np.asarray(X_train, dtype=np.float64)
         if X_train.ndim != 2 or X_train.shape[1:] != self.input_shape:
@@ -97,7 +110,13 @@ class _Classical(BaseClassifier):
         return buf.getbuffer().nbytes
 
     def _meta(self) -> dict[str, Any]:
-        return {"kind": self.kind, "n_classes": self.n_classes, "input_shape": list(self.input_shape), "params": self.params, "seed": self.seed}
+        return {
+            "kind": self.kind,
+            "n_classes": self.n_classes,
+            "input_shape": list(self.input_shape),
+            "params": self.params,
+            "seed": self.seed,
+        }
 
     def save(self, directory: Path) -> dict[str, str]:
         directory.mkdir(parents=True, exist_ok=True)
@@ -122,7 +141,9 @@ class _Classical(BaseClassifier):
         p = directory / "estimator.joblib"
         # joblib uses pickle: only load files whose hash was recorded by this platform's registry.
         if not expected or expected.get("estimator.joblib") != _sha(p):
-            raise ModelError("refusing to unpickle estimator: missing or mismatching registry sha256 (untrusted artifact?)")
+            raise ModelError(
+                "refusing to unpickle estimator: missing or mismatching registry sha256 (untrusted artifact?)"
+            )
         self.est = joblib.load(p)
 
 
@@ -166,7 +187,11 @@ class LogReg(_Classical):
     kind = "logreg"
 
     def _fit_est(self, Xs: np.ndarray, y: np.ndarray) -> None:
-        self.est = LogisticRegression(C=float(self.params.get("C", 1.0)), max_iter=int(self.params.get("max_iter", 2000)), class_weight=self.class_weight if self.class_weight != "none" else None)
+        self.est = LogisticRegression(
+            C=float(self.params.get("C", 1.0)),
+            max_iter=int(self.params.get("max_iter", 2000)),
+            class_weight=self.class_weight if self.class_weight != "none" else None,
+        )
         self.est.fit(Xs, y)
 
     def num_parameters(self) -> int:
@@ -176,7 +201,12 @@ class LogReg(_Classical):
         return int(self.est.coef_.nbytes + self.est.intercept_.nbytes)
 
     def _save_est(self, directory: Path) -> dict[str, str]:  # plain arrays, no pickle
-        np.savez(directory / "logreg.npz", coef=self.est.coef_, intercept=self.est.intercept_, classes=self.est.classes_)
+        np.savez(
+            directory / "logreg.npz",
+            coef=self.est.coef_,
+            intercept=self.est.intercept_,
+            classes=self.est.classes_,
+        )
         return {"logreg.npz": _sha(directory / "logreg.npz")}
 
     def _load_est(self, directory: Path, expected: dict[str, str] | None) -> None:

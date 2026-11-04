@@ -20,7 +20,6 @@ from .base import ProgressFn, TrainingHistory
 
 def set_determinism(seed: int) -> None:
     random.seed(seed)
-    np.random.seed(seed % (2**32))
     torch.manual_seed(seed)
     torch.use_deterministic_algorithms(True, warn_only=True)
 
@@ -67,7 +66,9 @@ def _build_sched(opt: torch.optim.Optimizer, cfg: TrainConfig):
 
 
 @torch.no_grad()
-def predict_logits(module: nn.Module, X: torch.Tensor, device: torch.device, batch_size: int = 512) -> torch.Tensor:
+def predict_logits(
+    module: nn.Module, X: torch.Tensor, device: torch.device, batch_size: int = 512
+) -> torch.Tensor:
     module.eval()
     outs = [module(X[i : i + batch_size].to(device)).float().cpu() for i in range(0, len(X), batch_size)]
     return torch.cat(outs) if outs else torch.zeros((0, 0))
@@ -93,11 +94,11 @@ def fit_module(
     module.to(device)
     hist = TrainingHistory(device=device.type, n_train=len(y_train))
     t0 = time.perf_counter()
-    Xt = torch.as_tensor(np.asarray(X_train), dtype=torch.float32)
+    Xt = torch.as_tensor(np.ascontiguousarray(X_train, dtype=np.float32))
     yt = torch.as_tensor(np.asarray(y_train), dtype=torch.long)
     has_val = X_val is not None and y_val is not None and len(y_val) > 0
     if has_val:
-        Xv = torch.as_tensor(np.asarray(X_val), dtype=torch.float32)
+        Xv = torch.as_tensor(np.ascontiguousarray(X_val, dtype=np.float32))
         yv = torch.as_tensor(np.asarray(y_val), dtype=torch.long)
     weight = None
     if cfg.class_weighting == "balanced":
@@ -112,7 +113,9 @@ def fit_module(
     start_epoch, best_val, bad, best_state = 0, float("inf"), 0, None
     last_ckpt = checkpoint_dir / "last.pt" if checkpoint_dir and cfg.checkpoint else None
     if resume and last_ckpt and last_ckpt.is_file():
-        ck = torch.load(last_ckpt, map_location=device, weights_only=True)  # tensors/primitives only: no code execution
+        ck = torch.load(
+            last_ckpt, map_location=device, weights_only=True
+        )  # tensors/primitives only: no code execution
         module.load_state_dict(ck["model"])
         opt.load_state_dict(ck["opt"])
         if sched is not None and ck.get("sched"):
@@ -128,7 +131,9 @@ def fit_module(
 
     def evaluate() -> tuple[float, float]:
         lg = predict_logits(module, Xv, device)
-        return float(nn.functional.cross_entropy(lg, yv, weight=weight.cpu() if weight is not None else None)), float((lg.argmax(1) == yv).float().mean())
+        return float(
+            nn.functional.cross_entropy(lg, yv, weight=weight.cpu() if weight is not None else None)
+        ), float((lg.argmax(1) == yv).float().mean())
 
     epoch = start_epoch
     while epoch < cfg.epochs:
@@ -162,16 +167,26 @@ def fit_module(
             correct += int((out.argmax(1) == yb).sum())
         if nan_hit or not np.isfinite(tot):
             if retries >= cfg.max_nan_retries:
-                raise TrainingError(f"non-finite loss at epoch {epoch + 1}; recovery attempts exhausted", details={"epoch": epoch + 1})
+                raise TrainingError(
+                    f"non-finite loss at epoch {epoch + 1}; recovery attempts exhausted",
+                    details={"epoch": epoch + 1},
+                )
             retries += 1
             hist.nan_recoveries += 1
-            module.load_state_dict(good_state)  # restore last good weights, lower the learning rate, retry the epoch
+            module.load_state_dict(
+                good_state
+            )  # restore last good weights, lower the learning rate, retry the epoch
             new_lr = opt.param_groups[0]["lr"] * 0.5
             opt = _build_opt(module.parameters(), cfg, new_lr)
             sched = _build_sched(opt, cfg)
             hist.notes.append(f"epoch {epoch + 1}: non-finite loss; restored weights, lr -> {new_lr:.3g}")
             continue
-        rec = {"epoch": float(epoch + 1), "train_loss": tot / n, "train_acc": correct / n, "lr": opt.param_groups[0]["lr"]}
+        rec = {
+            "epoch": float(epoch + 1),
+            "train_loss": tot / n,
+            "train_acc": correct / n,
+            "lr": opt.param_groups[0]["lr"],
+        }
         if has_val:
             rec["val_loss"], rec["val_acc"] = evaluate()
             monitor = rec["val_loss"]
@@ -189,7 +204,20 @@ def fit_module(
             bad += 1
         epoch += 1
         if last_ckpt:
-            _atomic_save({"model": module.state_dict(), "opt": opt.state_dict(), "sched": sched.state_dict() if sched else None, "epoch": epoch, "best_val": best_val, "bad": bad, "history": hist.epochs, "best_epoch": hist.best_epoch, "best_model": best_state}, last_ckpt)
+            _atomic_save(
+                {
+                    "model": module.state_dict(),
+                    "opt": opt.state_dict(),
+                    "sched": sched.state_dict() if sched else None,
+                    "epoch": epoch,
+                    "best_val": best_val,
+                    "bad": bad,
+                    "history": hist.epochs,
+                    "best_epoch": hist.best_epoch,
+                    "best_model": best_state,
+                },
+                last_ckpt,
+            )
         if progress:
             progress(epoch, cfg.epochs, rec)
         if has_val and bad >= cfg.patience:

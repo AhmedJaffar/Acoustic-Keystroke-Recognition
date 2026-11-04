@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator, model_validator
 
 from .errors import ConfigError
 
@@ -186,6 +186,10 @@ _DEFAULT_PROTOCOLS: dict[str, list[str]] = {
 }
 
 
+def _default_attackers() -> list[Literal["static", "adaptive"]]:
+    return ["static", "adaptive"]
+
+
 class ExperimentConfig(_Base):
     name: str = Field(min_length=1, max_length=120)
     hypothesis: str = ""
@@ -199,7 +203,7 @@ class ExperimentConfig(_Base):
     evaluation: EvalConfig = Field(default_factory=EvalConfig)
     augmentation: AugmentConfig | None = None
     defenses: list[DefenseConfig] = Field(default_factory=list)
-    attacker_modes: list[Literal["static", "adaptive"]] = Field(default_factory=lambda: ["static", "adaptive"])
+    attacker_modes: list[Literal["static", "adaptive"]] = Field(default_factory=_default_attackers)
     noise_snr_db: list[float] = Field(default_factory=list)
     protocols: list[EvalProtocol] | None = None
     variants: dict[str, dict[str, Any]] = Field(default_factory=dict)
@@ -230,8 +234,11 @@ class ExperimentConfig(_Base):
         return v
 
     @model_validator(mode="after")
-    def _kind_rules(self) -> ExperimentConfig:
+    def _kind_rules(self, info: ValidationInfo) -> ExperimentConfig:
         k = self.kind
+        leaf = bool(
+            info.context and info.context.get("leaf")
+        )  # an expanded sweep/ablation variant: grid already applied
         if k == "model_comparison" and len(self.models) < 2:
             raise ValueError("model_comparison requires at least two models")
         if k == "repeated_seed" and len(self.seeds) < 2:
@@ -240,9 +247,9 @@ class ExperimentConfig(_Base):
             raise ValueError("defense_comparison requires at least one defense")
         if k == "noise_robustness" and not self.noise_snr_db:
             raise ValueError("noise_robustness requires noise_snr_db levels")
-        if k == "sweep" and not self.sweep:
+        if k == "sweep" and not self.sweep and not leaf:
             raise ValueError("sweep requires a non-empty 'sweep' grid")
-        if k == "ablation" and not self.variants:
+        if k == "ablation" and not self.variants and not leaf:
             raise ValueError("ablation requires 'variants'")
         if k == "single" and len(self.seeds) != 1:
             raise ValueError("single experiments use exactly one seed")
@@ -268,7 +275,10 @@ def apply_overrides(cfg: ExperimentConfig, overrides: dict[str, Any]) -> Experim
     for path, value in overrides.items():
         _set_path(data, path, copy.deepcopy(value))
     data["variants"], data["sweep"] = {}, {}
-    return ExperimentConfig.model_validate(data)
+    try:
+        return ExperimentConfig.model_validate(data, context={"leaf": True})
+    except Exception as exc:
+        raise ConfigError(f"override produced an invalid configuration: {exc}") from exc
 
 
 def _set_path(root: Any, path: str, value: Any) -> None:

@@ -17,7 +17,10 @@ def distortion_metrics(clean: np.ndarray, processed: np.ndarray, sr: int) -> dic
     sig = (x**2).sum(axis=1)
     snr = 10 * np.log10(np.maximum(sig, 1e-20) / np.maximum(err, 1e-20))
     blind_c, blind_p = ops.estimate_snr_db(x, sr), ops.estimate_snr_db(y, sr)
-    lc, lp = ops.log_magnitude(ops.stft(x), eps=1e-5), ops.log_magnitude(ops.stft(y), eps=1e-5)  # -100 dB floor
+    lc, lp = (
+        ops.log_magnitude(ops.stft(x), eps=1e-5),
+        ops.log_magnitude(ops.stft(y), eps=1e-5),
+    )  # -100 dB floor
     lsd = np.sqrt(((lc - lp) ** 2).mean(axis=(1, 2)))
     xc, yc = x - x.mean(axis=1, keepdims=True), y - y.mean(axis=1, keepdims=True)
     corr = (xc * yc).sum(axis=1) / np.maximum(np.sqrt((xc**2).sum(axis=1) * (yc**2).sum(axis=1)), 1e-12)
@@ -30,7 +33,9 @@ def distortion_metrics(clean: np.ndarray, processed: np.ndarray, sr: int) -> dic
     }
 
 
-def defense_quality(chain: DefenseChain, clean: np.ndarray, sr: int, seed: int = 0, repeats: int = 3) -> dict[str, Any]:
+def defense_quality(
+    chain: DefenseChain, clean: np.ndarray, sr: int, seed: int = 0, repeats: int = 3
+) -> dict[str, Any]:
     """Distortion + processing latency (real-time factor = processing seconds per second of audio)."""
     out = chain.apply(clean, sr, seed)
     m = distortion_metrics(clean, out, sr)
@@ -52,7 +57,8 @@ def pareto_frontier(points: list[dict[str, Any]], maximize: str, minimize: str) 
     front = []
     for p in usable:
         dominated = any(
-            (q[maximize] >= p[maximize] and q[minimize] <= p[minimize]) and (q[maximize] > p[maximize] or q[minimize] < p[minimize])
+            (q[maximize] >= p[maximize] and q[minimize] <= p[minimize])
+            and (q[maximize] > p[maximize] or q[minimize] < p[minimize])
             for q in usable
             if q is not p
         )

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 import torch
@@ -20,7 +20,14 @@ class TorchClassifier(BaseClassifier):
     family = "deep"
     kind = "base"
 
-    def __init__(self, n_classes: int, input_shape: tuple[int, ...], params: dict[str, Any], seed: int, train_cfg: TrainConfig | None = None) -> None:
+    def __init__(
+        self,
+        n_classes: int,
+        input_shape: tuple[int, ...],
+        params: dict[str, Any],
+        seed: int,
+        train_cfg: TrainConfig | None = None,
+    ) -> None:
         super().__init__(n_classes, input_shape, params, seed)
         self.train_cfg = train_cfg or TrainConfig()
         torch.manual_seed(seed)
@@ -37,16 +44,40 @@ class TorchClassifier(BaseClassifier):
     def _fit_stats(self, X: np.ndarray) -> None:
         raise NotImplementedError
 
-    def fit(self, X_train, y_train, X_val=None, y_val=None, *, progress=None, should_cancel=None, checkpoint_dir=None, resume=False) -> TrainingHistory:
-        X_train = np.asarray(X_train, dtype=np.float32)
+    def fit(
+        self,
+        X_train,
+        y_train,
+        X_val=None,
+        y_val=None,
+        *,
+        progress=None,
+        should_cancel=None,
+        checkpoint_dir=None,
+        resume=False,
+    ) -> TrainingHistory:
+        X_train = np.ascontiguousarray(X_train, dtype=np.float32)
         if X_train.shape[1:] != self.input_shape:
             raise ModelError(f"{self.kind}: expected input (N, {self.input_shape}); got {X_train.shape}")
         if not (resume and checkpoint_dir and (checkpoint_dir / "last.pt").is_file()):
             self._fit_stats(X_train)  # training-only normalisation statistics
-        return fit_module(self.module, X_train, y_train, X_val, y_val, self.train_cfg, self.seed, self.n_classes, checkpoint_dir=checkpoint_dir, resume=resume, progress=progress, should_cancel=should_cancel)
+        return fit_module(
+            self.module,
+            X_train,
+            y_train,
+            X_val,
+            y_val,
+            self.train_cfg,
+            self.seed,
+            self.n_classes,
+            checkpoint_dir=checkpoint_dir,
+            resume=resume,
+            progress=progress,
+            should_cancel=should_cancel,
+        )
 
     def predict_proba(self, X: np.ndarray) -> np.ndarray:
-        X = np.asarray(X, dtype=np.float32)
+        X = np.ascontiguousarray(X, dtype=np.float32)
         if X.shape[1:] != self.input_shape:
             raise ModelError(f"{self.kind}: expected input (N, {self.input_shape}); got {X.shape}")
         lg = predict_logits(self.module, torch.as_tensor(X), self.device)
@@ -56,20 +87,40 @@ class TorchClassifier(BaseClassifier):
         return int(sum(p.numel() for p in self.module.net.parameters()))
 
     def size_bytes(self) -> int:
-        return int(sum(p.numel() * p.element_size() for p in self.module.parameters()) + sum(b.numel() * b.element_size() for b in self.module.buffers()))
+        return int(
+            sum(p.numel() * p.element_size() for p in self.module.parameters())
+            + sum(b.numel() * b.element_size() for b in self.module.buffers())
+        )
 
     def save(self, directory: Path) -> dict[str, str]:
         import hashlib
 
         directory.mkdir(parents=True, exist_ok=True)
         torch.save({k: v.cpu() for k, v in self.module.state_dict().items()}, directory / "model.pt")
-        (directory / "meta.json").write_text(json.dumps({"kind": self.kind, "n_classes": self.n_classes, "input_shape": list(self.input_shape), "params": self.params, "seed": self.seed, "train": self.train_cfg.model_dump(mode="json")}))
+        (directory / "meta.json").write_text(
+            json.dumps(
+                {
+                    "kind": self.kind,
+                    "n_classes": self.n_classes,
+                    "input_shape": list(self.input_shape),
+                    "params": self.params,
+                    "seed": self.seed,
+                    "train": self.train_cfg.model_dump(mode="json"),
+                }
+            )
+        )
         return {"model.pt": hashlib.sha256((directory / "model.pt").read_bytes()).hexdigest()}
 
     @classmethod
     def load(cls, directory: Path, expected_sha256: dict[str, str] | None = None) -> TorchClassifier:
         meta = json.loads((directory / "meta.json").read_text())
-        obj = cls(meta["n_classes"], tuple(meta["input_shape"]), meta["params"], meta["seed"], TrainConfig.model_validate(meta["train"]))
+        obj = cls(
+            meta["n_classes"],
+            tuple(meta["input_shape"]),
+            meta["params"],
+            meta["seed"],
+            TrainConfig.model_validate(meta["train"]),
+        )
         sd = torch.load(directory / "model.pt", map_location="cpu", weights_only=True)
         obj.module.load_state_dict(sd)
         obj.module.to(obj.device)
@@ -96,7 +147,13 @@ class CNN1DClassifier(_WaveMixin, TorchClassifier):
 
     def _build_net(self):
         p = self.params
-        return CNN1D(self.n_classes, self.input_shape[0], tuple(p.get("channels", (16, 32, 64))), int(p.get("kernel", 9)), float(p.get("dropout", 0.2)))
+        return CNN1D(
+            self.n_classes,
+            self.input_shape[0],
+            tuple(p.get("channels", (16, 32, 64))),
+            int(p.get("kernel", 9)),
+            float(p.get("dropout", 0.2)),
+        )
 
 
 class CNN2DClassifier(_SpecMixin, TorchClassifier):
@@ -104,7 +161,12 @@ class CNN2DClassifier(_SpecMixin, TorchClassifier):
 
     def _build_net(self):
         p = self.params
-        return CNN2D(self.n_classes, self.input_shape, tuple(p.get("channels", (16, 32))), float(p.get("dropout", 0.2)))
+        return CNN2D(
+            self.n_classes,
+            cast(tuple[int, int], self.input_shape),
+            tuple(p.get("channels", (16, 32))),
+            float(p.get("dropout", 0.2)),
+        )
 
 
 class ResNet2DClassifier(_SpecMixin, TorchClassifier):
@@ -112,7 +174,13 @@ class ResNet2DClassifier(_SpecMixin, TorchClassifier):
 
     def _build_net(self):
         p = self.params
-        return ResCNN2D(self.n_classes, self.input_shape, int(p.get("width", 16)), int(p.get("blocks", 3)), float(p.get("dropout", 0.2)))
+        return ResCNN2D(
+            self.n_classes,
+            cast(tuple[int, int], self.input_shape),
+            int(p.get("width", 16)),
+            int(p.get("blocks", 3)),
+            float(p.get("dropout", 0.2)),
+        )
 
 
 class TransformerClassifier(_SpecMixin, TorchClassifier):
@@ -120,4 +188,11 @@ class TransformerClassifier(_SpecMixin, TorchClassifier):
 
     def _build_net(self):
         p = self.params
-        return AudioTransformer(self.n_classes, self.input_shape, int(p.get("d_model", 48)), int(p.get("heads", 4)), int(p.get("layers", 2)), float(p.get("dropout", 0.1)))
+        return AudioTransformer(
+            self.n_classes,
+            cast(tuple[int, int], self.input_shape),
+            int(p.get("d_model", 48)),
+            int(p.get("heads", 4)),
+            int(p.get("layers", 2)),
+            float(p.get("dropout", 0.1)),
+        )

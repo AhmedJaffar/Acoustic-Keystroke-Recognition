@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
+import contextlib
 import resource
-import time
 import traceback
 from collections.abc import Callable
 from pathlib import Path
@@ -16,7 +16,7 @@ from ..config import ExperimentConfig, canonical_json
 from ..data import Dataset, assert_no_leakage, augment, generate_synthetic, make_split, validate_dataset
 from ..defense import DefenseChain, defense_quality
 from ..dsp import PreprocessPipeline
-from ..errors import CancelledError, ConfigError, DatasetError, OpenKeystrokeError
+from ..errors import CancelledError, DatasetError, OpenKeystrokeError
 from ..evaluation import SCALAR_KEYS, bootstrap_ci, compute_metrics, measure_inference
 from ..evaluation.summary import summarize_experiment
 from ..features import FeatureCache, make_extractor
@@ -102,8 +102,16 @@ def run_experiment(ws: Workspace, eid: str, *, progress: ProgressCb | None = Non
     try:
         torch.set_num_threads(cfg.resources.max_threads)
         ds = resolve_dataset(ws, cfg)
-        ds_info = {"dataset_id": ds.manifest.dataset_id, "version": ds.manifest.version, "fingerprint": ds.fingerprint, "is_synthetic": ds.is_synthetic, "class_names": ds.class_names}
-        store.put_json(eid, "dataset.json", {"manifest": ds.manifest.model_dump(mode="json"), "stats": ds.stats()})
+        ds_info = {
+            "dataset_id": ds.manifest.dataset_id,
+            "version": ds.manifest.version,
+            "fingerprint": ds.fingerprint,
+            "is_synthetic": ds.is_synthetic,
+            "class_names": ds.class_names,
+        }
+        store.put_json(
+            eid, "dataset.json", {"manifest": ds.manifest.model_dump(mode="json"), "stats": ds.stats()}
+        )
         jobs = build_jobs(cfg)
         total = len(jobs)
         store.update_progress(eid, 0, total, "starting")
@@ -127,7 +135,12 @@ def run_experiment(ws: Workspace, eid: str, *, progress: ProgressCb | None = Non
         summary = summarize_experiment(rows, cfg, quality, ds_info)
         store.put_json(eid, "summary.json", summary, "json")
         _plots(store, eid, rows, jobs_out, summary, ds_info)
-        store.put_json(eid, "results.json", {"rows": rows, "jobs": jobs_out, "defense_quality": quality, "dataset": ds_info}, "json")
+        store.put_json(
+            eid,
+            "results.json",
+            {"rows": rows, "jobs": jobs_out, "defense_quality": quality, "dataset": ds_info},
+            "json",
+        )
         if preds:
             store.put_npz(eid, "predictions.npz", **preds)
         store.transition(eid, "COMPLETED")
@@ -147,10 +160,12 @@ def run_experiment(ws: Workspace, eid: str, *, progress: ProgressCb | None = Non
 
 
 def _save_partial(store, eid, rows, jobs_out, quality, ds_info) -> None:
-    try:
-        store.put_json(eid, "results.partial.json", {"rows": rows, "jobs": jobs_out, "defense_quality": quality, "dataset": ds_info})
-    except Exception:  # never mask the original failure
-        pass
+    with contextlib.suppress(Exception):  # never mask the original failure
+        store.put_json(
+            eid,
+            "results.partial.json",
+            {"rows": rows, "jobs": jobs_out, "defense_quality": quality, "dataset": ds_info},
+        )
 
 
 def _all_conditions(jobs: list[Job]) -> list[Condition]:
@@ -178,7 +193,10 @@ def _metric_rows(job_rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 if k in r[split]:
                     out.append({**base, "split": split, "name": k, "value": r[split][k]})
         for k, v in (r.get("test_ci") or {}).items():
-            out += [{**base, "split": "test", "name": f"{k}_ci_lo", "value": v["lo"]}, {**base, "split": "test", "name": f"{k}_ci_hi", "value": v["hi"]}]
+            out += [
+                {**base, "split": "test", "name": f"{k}_ci_lo", "value": v["lo"]},
+                {**base, "split": "test", "name": f"{k}_ci_hi", "value": v["hi"]},
+            ]
         for k, v in (r.get("resource") or {}).items():
             out.append({**base, "split": "test", "name": k, "value": v})
     return out
@@ -189,13 +207,27 @@ def _plots(store, eid, rows, jobs_out, summary, ds_info) -> None:
     clean = [r for r in rows if r["condition"] == "clean" and r["attacker"] == "static"]
     if clean:
         best = max(clean, key=lambda r: r["test"]["accuracy"])
-        store.put_bytes(eid, "plots/confusion_best.png", plots.confusion_png(best["test"]["confusion_matrix"], classes, f"{best['model']} / {best['protocol']} / seed {best['seed']}"), "png")
+        store.put_bytes(
+            eid,
+            "plots/confusion_best.png",
+            plots.confusion_png(
+                best["test"]["confusion_matrix"],
+                classes,
+                f"{best['model']} / {best['protocol']} / seed {best['seed']}",
+            ),
+            "png",
+        )
     deep = [j for j in jobs_out if len(j["history"]["epochs"]) > 1]
     if deep:
         j = deep[0]
         store.put_bytes(eid, "plots/training_curve.png", plots.training_png(j["history"], j["job_id"]), "png")
     if summary["effectiveness_curves"]:
-        store.put_bytes(eid, "plots/defense_curves.png", plots.defense_png(summary["effectiveness_curves"], summary["chance_accuracy"]), "png")
+        store.put_bytes(
+            eid,
+            "plots/defense_curves.png",
+            plots.defense_png(summary["effectiveness_curves"], summary["chance_accuracy"]),
+            "png",
+        )
 
 
 # ----------------------------------------------------------------------------- job execution
@@ -222,7 +254,9 @@ class _Context:
         stoch = cond.defense is not None and DefenseChain(cond.defense).stochastic
         key = (cfg.preprocess.model_dump_json(), cond.name, seed if stoch else 0)
         if key not in self._proc:
-            self._proc[key] = PreprocessPipeline(cfg.preprocess)(self.defended(cond, seed), self.ds.sample_rate).waveforms
+            self._proc[key] = PreprocessPipeline(cfg.preprocess)(
+                self.defended(cond, seed), self.ds.sample_rate
+            ).waveforms
         return self._proc[key], cfg.preprocess.target_sample_rate or self.ds.sample_rate
 
     def base_features(self, cfg: ExperimentConfig, kind: str, cond: Condition, seed: int, ex) -> np.ndarray:
@@ -230,7 +264,11 @@ class _Context:
         if kind == "waveform":
             return wf
         stoch = cond.defense is not None and DefenseChain(cond.defense).stochastic
-        wave_key = {"preprocess": cfg.preprocess.model_dump(mode="json"), "defense": cond.defense.model_dump(mode="json") if cond.defense else None, "seed": seed if stoch else 0}
+        wave_key = {
+            "preprocess": cfg.preprocess.model_dump(mode="json"),
+            "defense": cond.defense.model_dump(mode="json") if cond.defense else None,
+            "seed": seed if stoch else 0,
+        }
         mkey = (canonical_json(wave_key), ex.cache_id())
         if mkey not in self._base:
             ck = FeatureCache.key(self.ds.fingerprint, wave_key, ex.cache_id())
@@ -246,14 +284,25 @@ class _Context:
         assert_no_leakage(self.ds, split)
         y = self.ds.labels
         _, sr = self.processed(cfg, job.train_condition, job.seed)
-        fcfg = {"vector": cfg.vector_features, "spectrogram": cfg.tensor_features}.get(kind, cfg.tensor_features)
-        ex = make_extractor(fcfg, sr) if kind != "waveform" else make_extractor(fcfg.model_copy(update={"name": "waveform"}), sr)
+        fcfg = {"vector": cfg.vector_features, "spectrogram": cfg.tensor_features}.get(
+            kind, cfg.tensor_features
+        )
+        ex = (
+            make_extractor(fcfg, sr)
+            if kind != "waveform"
+            else make_extractor(fcfg.model_copy(update={"name": "waveform"}), sr)
+        )
 
         # training features (training partition only is used for every fit)
         base_tr = self.base_features(cfg, kind, job.train_condition, job.seed, ex)[split.train]
         y_tr = y[split.train]
         if cfg.augmentation is not None:
-            aug_raw = augment(self.defended(job.train_condition, job.seed)[split.train], cfg.augmentation, job.seed, self.ds.sample_rate)
+            aug_raw = augment(
+                self.defended(job.train_condition, job.seed)[split.train],
+                cfg.augmentation,
+                job.seed,
+                self.ds.sample_rate,
+            )
             aug_wf = PreprocessPipeline(cfg.preprocess)(aug_raw, self.ds.sample_rate).waveforms
             base_aug = aug_wf if kind == "waveform" else ex.batched(aug_wf)
             base_tr = np.concatenate([base_tr, base_aug])
@@ -261,14 +310,25 @@ class _Context:
         if ex.requires_fit:
             ex.fit(base_tr)  # fit on training partition only
         X_tr = ex.finish(base_tr)
-        base_va = self.base_features(cfg, kind, job.train_condition if job.attacker == "adaptive" else CLEAN, job.seed, ex)[split.val]
+        base_va = self.base_features(
+            cfg, kind, job.train_condition if job.attacker == "adaptive" else CLEAN, job.seed, ex
+        )[split.val]
         X_va = ex.finish(base_va)
         model = create_model(mcfg, len(self.ds.class_names), X_tr.shape[1:], job.seed)
-        ckpt = store.artifact_dir(eid, f"checkpoints/{job.slug}") if model.family == "deep" and mcfg.training.checkpoint else None
+        ckpt = (
+            store.artifact_dir(eid, f"checkpoints/{job.slug}")
+            if model.family == "deep" and mcfg.training.checkpoint
+            else None
+        )
         cancel = lambda: store.is_cancel_requested(eid)  # noqa: E731
         history = model.fit(X_tr, y_tr, X_va, y[split.val], should_cancel=cancel, checkpoint_dir=ckpt)
         if ckpt is not None:
-            store.register_dir(eid, f"checkpoints/{job.slug}", "checkpoint_dir", {f.name: str(f.stat().st_size) for f in ckpt.iterdir()})
+            store.register_dir(
+                eid,
+                f"checkpoints/{job.slug}",
+                "checkpoint_dir",
+                {f.name: str(f.stat().st_size) for f in ckpt.iterdir()},
+            )
 
         # evaluation on val + test under each requested test condition
         rows, preds = [], {}
@@ -277,20 +337,57 @@ class _Context:
             B = self.base_features(cfg, kind, cond, job.seed, ex)
             Xte, Xva = ex.finish(B[split.test]), ex.finish(B[split.val])
             p_te, p_va = model.predict_proba(Xte), model.predict_proba(Xva)
-            m_te = compute_metrics(y[split.test], p_te, self.ds.class_names, calibration_bins=cfg.evaluation.calibration_bins)
-            m_va = compute_metrics(y[split.val], p_va, self.ds.class_names, calibration_bins=cfg.evaluation.calibration_bins)
-            ci = bootstrap_ci(y[split.test], p_te.argmax(1), len(self.ds.class_names), groups=groups, n_boot=cfg.evaluation.bootstrap_samples, confidence=cfg.evaluation.confidence, seed=job.seed)
+            m_te = compute_metrics(
+                y[split.test], p_te, self.ds.class_names, calibration_bins=cfg.evaluation.calibration_bins
+            )
+            m_va = compute_metrics(
+                y[split.val], p_va, self.ds.class_names, calibration_bins=cfg.evaluation.calibration_bins
+            )
+            ci = bootstrap_ci(
+                y[split.test],
+                p_te.argmax(1),
+                len(self.ds.class_names),
+                groups=groups,
+                n_boot=cfg.evaluation.bootstrap_samples,
+                confidence=cfg.evaluation.confidence,
+                seed=job.seed,
+            )
             res: dict[str, float] = {}
             if cond is CLEAN or cond.name == "clean":
-                res = {"n_parameters": float(model.num_parameters()), "model_size_bytes": float(model.size_bytes()), "train_seconds": history.seconds,
-                       "process_peak_rss_mb": resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024}
+                res = {
+                    "n_parameters": float(model.num_parameters()),
+                    "model_size_bytes": float(model.size_bytes()),
+                    "train_seconds": history.seconds,
+                    "process_peak_rss_mb": resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024,
+                }
                 if cfg.evaluation.measure_latency:
                     res.update(measure_inference(model.predict_proba, Xte))
-            rows.append({"job_id": job.job_id, "variant": job.variant, "protocol": job.protocol, "model": job.model_label, "model_name": mcfg.name, "seed": job.seed, "attacker": job.attacker,
-                         "train_condition": job.train_condition.name, "condition": cond.name, "split_sizes": split.sizes(), "test_groups": split.groups.get("test", []), "group_kind": split.group_kind,
-                         "val": m_va, "test": m_te, "test_ci": ci, "resource": res})
+            rows.append(
+                {
+                    "job_id": job.job_id,
+                    "variant": job.variant,
+                    "protocol": job.protocol,
+                    "model": job.model_label,
+                    "model_name": mcfg.name,
+                    "seed": job.seed,
+                    "attacker": job.attacker,
+                    "train_condition": job.train_condition.name,
+                    "condition": cond.name,
+                    "split_sizes": split.sizes(),
+                    "test_groups": split.groups.get("test", []),
+                    "group_kind": split.group_kind,
+                    "val": m_va,
+                    "test": m_te,
+                    "test_ci": ci,
+                    "resource": res,
+                }
+            )
             tag = f"{job.slug}__{cond.name}"
-            preds[f"{tag}__y"], preds[f"{tag}__proba"], preds[f"{tag}__idx"] = y[split.test], p_te.astype(np.float32), split.test
+            preds[f"{tag}__y"], preds[f"{tag}__proba"], preds[f"{tag}__idx"] = (
+                y[split.test],
+                p_te.astype(np.float32),
+                split.test,
+            )
         # persist a trained clean/static model once per (variant, protocol, model) for later inspection
         mk = (job.variant, job.protocol, job.model_label)
         if cfg.save_models and job.attacker == "static" and mk not in self._models_saved:
@@ -299,5 +396,11 @@ class _Context:
             hashes = model.save(d)
             ex.save(d / "extractor")
             store.register_dir(eid, f"models/{job.slug}", "model_dir", hashes)
-        info = {"job_id": job.job_id, "history": history.to_dict(), "feature": ex.config_dict(), "model": {"name": mcfg.name, "params": mcfg.params, "family": model.family}, "split": {"protocol": job.protocol, "sizes": split.sizes(), "groups": split.groups}}
+        info = {
+            "job_id": job.job_id,
+            "history": history.to_dict(),
+            "feature": ex.config_dict(),
+            "model": {"name": mcfg.name, "params": mcfg.params, "family": model.family},
+            "split": {"protocol": job.protocol, "sizes": split.sizes(), "groups": split.groups},
+        }
         return rows, info, preds

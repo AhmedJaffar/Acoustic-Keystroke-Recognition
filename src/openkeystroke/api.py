@@ -10,17 +10,34 @@ from .data import Dataset, ValidationReport
 from .data import generate_synthetic as _generate
 from .data import ingest_consented_recordings as ingest_consented_recordings
 from .data import validate_dataset as _validate
-from .experiments.runner import create_experiment, run_experiment as _run, validate_experiment
+from .experiments.runner import create_experiment, validate_experiment
+from .experiments.runner import run_experiment as _run
 from .presets import preset_config
 from .registry import Workspace
 
 __all__ = [
-    "ExperimentConfig", "Workspace", "create_experiment", "export_results", "generate_synthetic_dataset", "get_experiment", "get_summary",
-    "ingest_consented_recordings", "list_experiments", "load_config", "load_dataset", "parse_config", "preset_config", "run_experiment", "validate_dataset", "validate_experiment",
+    "ExperimentConfig",
+    "Workspace",
+    "create_experiment",
+    "export_results",
+    "generate_synthetic_dataset",
+    "get_experiment",
+    "get_summary",
+    "ingest_consented_recordings",
+    "list_experiments",
+    "load_config",
+    "load_dataset",
+    "parse_config",
+    "preset_config",
+    "run_experiment",
+    "validate_dataset",
+    "validate_experiment",
 ]
 
 
-def generate_synthetic_dataset(config: SyntheticConfig | None = None, out: str | Path | None = None) -> Dataset:
+def generate_synthetic_dataset(
+    config: SyntheticConfig | None = None, out: str | Path | None = None
+) -> Dataset:
     ds = _generate(config or SyntheticConfig())
     if out is not None:
         ds.save(out)
@@ -47,12 +64,14 @@ def get_experiment(experiment_id: str, workspace: Workspace | None = None) -> di
 
 
 def list_experiments(workspace: Workspace | None = None, **filters: Any) -> list[dict[str, Any]]:
-    return (workspace or Workspace()).store.list(**filters)
+    return (workspace or Workspace()).store.list_experiments(**filters)
 
 
 def get_summary(experiment_id: str, workspace: Workspace | None = None) -> dict[str, Any]:
     return (workspace or Workspace()).store.get_json(experiment_id, "summary.json")
 
 
-def export_results(experiment_ids: list[str], path: str | Path, fmt: str = "csv", workspace: Workspace | None = None) -> Path:
+def export_results(
+    experiment_ids: list[str], path: str | Path, fmt: str = "csv", workspace: Workspace | None = None
+) -> Path:
     return (workspace or Workspace()).store.export_metrics(experiment_ids, Path(path), fmt)
