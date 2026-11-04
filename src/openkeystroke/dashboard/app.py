@@ -900,7 +900,7 @@ def page_eval() -> None:
             c[2].metric("NLL", f"{tr['nll']:.3f}")
     with t[4]:
         if sel_rows:
-            df = pd.DataFrame(
+            seed_df = pd.DataFrame(
                 [
                     {
                         "label": f"{r['model']} · {r['protocol']}",
@@ -911,13 +911,13 @@ def page_eval() -> None:
                 ]
             )
             fig = go.Figure()
-            for k, g in df.groupby("label"):
+            for grp_key, grp in seed_df.groupby("label"):
                 fig.add_scatter(
-                    x=[k] * len(g),
-                    y=g["accuracy"],
+                    x=[grp_key] * len(grp),
+                    y=grp["accuracy"],
                     mode="markers",
-                    name=k,
-                    text=g["seed"],
+                    name=str(grp_key),
+                    text=grp["seed"],
                     hovertemplate="seed %{text}: %{y:.3f}",
                 )
             fig.update_yaxes(range=[0, 1], title="held-out accuracy per seed")
